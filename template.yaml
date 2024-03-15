@@ -1,9 +1,9 @@
 AWSTemplateFormatVersion: '2010-09-09'
 Transform: AWS::Serverless-2016-10-31
 Description: >
-  aws-comment-analysis-app
+  comment-analysis-service
 
-  Sample SAM Template for aws-comment-analysis-app
+  Sample SAM Template for comment-analysis-service
 Globals:
   Function:
     Timeout: 3

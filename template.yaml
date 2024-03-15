@@ -1,0 +1,209 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: >
+  aws-comment-analysis-app
+
+  Sample SAM Template for aws-comment-analysis-app
+Globals:
+  Function:
+    Timeout: 3
+    MemorySize: 128
+    Tracing: Active
+    LoggingConfig:
+      LogFormat: JSON
+  Api:
+    TracingEnabled: true
+
+Parameters:
+  BucketName:
+    Type: String
+    Default: youtube-comment-analysis-bucket-v4
+  YouTubeApiKeySecretName:
+    Type: String
+    Default: YOUTUBE_API_KEY_V2
+    
+
+Resources:
+  GetDataFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Timeout: 30
+      Architectures: [arm64]
+      Handler: lambda_function.lambda_handler
+      Runtime: python3.10
+      CodeUri: lambda/get_data
+      Environment:
+        Variables:
+          BUCKET_NAME: !Ref BucketName
+          YOUTUBE_API_KEY_SECRET_NAME: !Ref YouTubeApiKeySecretName
+      Policies:
+        - AWSSecretsManagerGetSecretValuePolicy:
+            SecretArn: !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${YouTubeApiKeySecretName}-*"
+        - S3WritePolicy:
+            BucketName: !Ref BucketName
+    Metadata:
+      BuildMethod: makefile
+
+  TransformDataFunctionRepository:
+    Type: AWS::ECR::Repository
+    Properties:
+      EmptyOnDelete: true
+      RepositoryName: transformdatafunction
+
+  TransformDataFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Timeout: 300
+      MemorySize: 2048
+      Architectures: [arm64]
+      PackageType: Image
+      Environment:
+        Variables:
+          BUCKET_NAME: !Ref BucketName
+      ImageUri: !Sub "${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/transformdatafunction:latest"
+      Policies:
+        - ComprehendBasicAccessPolicy: {}
+        - S3WritePolicy:
+            BucketName: !Ref BucketName
+        - S3ReadPolicy:
+            BucketName: !Ref BucketName   
+    Metadata:
+      Dockerfile: Dockerfile
+      DockerContext: lambda/transform_data
+
+
+  FormatDataFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Description: "Lambda function formatting Json Data into CSV file"
+      Timeout: 30
+      Architectures: [arm64]
+      Handler: lambda_function.lambda_handler
+      Runtime: python3.10
+      CodeUri: lambda/format_data/src
+      Environment:
+        Variables:
+          BUCKET_NAME: !Ref BucketName
+      Policies:
+        - S3WritePolicy:
+            BucketName: !Ref BucketName
+        - S3ReadPolicy:
+            BucketName: !Ref BucketName
+
+
+  AnalyzeDataFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Description: "Lambda function analyzing CSV file"
+      Timeout: 30
+      Architectures: [arm64]
+      Handler: lambda_function.lambda_handler
+      Runtime: python3.10
+      CodeUri: lambda/analyze_data/src
+      Layers: ["arn:aws:lambda:eu-west-1:336392948345:layer:AWSSDKPandas-Python310-Arm64:13"]
+      Environment:
+        Variables:
+          BUCKET_NAME: !Ref BucketName
+      Policies:
+        - S3WritePolicy:
+            BucketName: !Ref BucketName
+        - S3ReadPolicy:
+            BucketName: !Ref BucketName
+
+  CreateReportRepository:
+    Type: AWS::ECR::Repository
+    Properties:
+      EmptyOnDelete: true
+      RepositoryName: createreportfunction
+
+  CreateReportFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Timeout: 30
+      MemorySize: 1024
+      Architectures: [arm64]
+      PackageType: Image
+      Environment:
+        Variables:
+          BUCKET_NAME: !Ref BucketName
+      ImageUri: !Sub ${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/createreportfunction:latest
+      Policies:
+        - ComprehendBasicAccessPolicy: {}
+        - S3WritePolicy:
+            BucketName: !Ref BucketName
+        - S3ReadPolicy:
+            BucketName: !Ref BucketName
+    Metadata:
+      Dockerfile: Dockerfile
+      DockerContext: lambda/create_report
+
+
+      
+  CreateReportStateMachine:
+    Type: AWS::Serverless::StateMachine
+    Properties:
+      DefinitionSubstitutions:
+        GetDataFunctionArn: !GetAtt GetDataFunction.Arn
+        TransformDataFunctionArn: !GetAtt TransformDataFunction.Arn
+        FormatDataFunctionArn: !GetAtt FormatDataFunction.Arn
+        AnalyzeDataFunctionArn: !GetAtt AnalyzeDataFunction.Arn
+        CreateReportFunctionArn: !GetAtt CreateReportFunction.Arn
+      Policies:
+        - LambdaInvokePolicy:
+            FunctionName: !Ref GetDataFunction
+        - LambdaInvokePolicy:
+            FunctionName: !Ref TransformDataFunction
+        - LambdaInvokePolicy:
+            FunctionName: !Ref FormatDataFunction
+        - LambdaInvokePolicy:
+            FunctionName: !Ref AnalyzeDataFunction
+        - LambdaInvokePolicy:
+            FunctionName: !Ref CreateReportFunction
+      DefinitionUri: statemachine/asl.json
+      Events:
+        ApiEvent:
+          Type: Api
+          Properties:
+            Path: /report
+            Method: post
+            RestApiId: !Ref CreateReportApi
+
+  ApiGatewayStepFunctionsRole:
+    Type: AWS::IAM::Role
+    Properties:
+      Path: !Sub "/${AWS::StackName}/"
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Sid: AllowApiGatewayServiceToAssumeRole
+            Effect: Allow
+            Action:
+              - 'sts:AssumeRole'
+            Principal:
+              Service:
+                - apigateway.amazonaws.com
+      Policies:
+        - PolicyName: !Sub "${AWS::StackName}-CallStepFunctions"
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                  - 'states:StartExecution'
+                Resource:
+                  - !Ref CreateReportStateMachine
+
+  CreateReportApi:
+    Type: AWS::Serverless::Api
+    Properties:
+      StageName: Staging
+      DefinitionBody:
+        'Fn::Transform':
+          Name: 'AWS::Include'
+          Parameters:
+            Location: OpenAPI.yml
+
+Outputs:
+  CreateReportApi:
+    Description: "API Gateway endpoint to call State Machine"
+    Value: !Sub "https://${CreateReportApi}.execute-api.${AWS::Region}.amazonaws.com/Staging/"

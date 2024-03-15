@@ -1,0 +1,19 @@
+[tool.poetry]
+name = "temp"
+version = "0.1.0"
+description = ""
+authors = ["pirocheto <pirocheto@gmail.com>"]
+readme = "README.md"
+packages = [{include = "src"}]
+
+[tool.poetry.dependencies]
+python = "^3.10"
+requests = "^2.31.0"
+urllib3 = "<2"
+
+[tool.poetry.group.dev.dependencies]
+boto3 = "^1.34.62"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"

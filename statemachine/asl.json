@@ -1,0 +1,124 @@
+{
+  "StartAt": "Lambda Data",
+  "States": {
+    "Lambda Analyze": {
+      "Next": "Create Report",
+      "InputPath": "$.output",
+      "OutputPath": "$.Payload",
+      "Parameters": {
+        "FunctionName": "${AnalyzeDataFunctionArn}",
+        "Payload.$": "$"
+      },
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Retry": [
+        {
+          "BackoffRate": 2,
+          "ErrorEquals": [
+            "Lambda.ServiceException",
+            "Lambda.AWSLambdaException",
+            "Lambda.SdkClientException",
+            "Lambda.TooManyRequestsException"
+          ],
+          "IntervalSeconds": 1,
+          "MaxAttempts": 3
+        }
+      ],
+      "Type": "Task"
+    },
+    "Lambda Data": {
+      "Next": "Lambda Transform",
+      "OutputPath": "$.Payload",
+      "Parameters": {
+        "Payload.$": "$",
+        "FunctionName": "${GetDataFunctionArn}"
+      },
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Retry": [
+        {
+          "BackoffRate": 2,
+          "ErrorEquals": [
+            "Lambda.ServiceException",
+            "Lambda.AWSLambdaException",
+            "Lambda.SdkClientException",
+            "Lambda.TooManyRequestsException"
+          ],
+          "IntervalSeconds": 1,
+          "MaxAttempts": 3
+        }
+      ],
+      "Type": "Task"
+    },
+    "Lambda Format": {
+      "InputPath": "$.output",
+      "Next": "Lambda Analyze",
+      "OutputPath": "$.Payload",
+      "Parameters": {
+        "FunctionName": "${FormatDataFunctionArn}",
+        "Payload.$": "$"
+      },
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Retry": [
+        {
+          "BackoffRate": 2,
+          "ErrorEquals": [
+            "Lambda.ServiceException",
+            "Lambda.AWSLambdaException",
+            "Lambda.SdkClientException",
+            "Lambda.TooManyRequestsException"
+          ],
+          "IntervalSeconds": 1,
+          "MaxAttempts": 3
+        }
+      ],
+      "Type": "Task"
+    },
+    "Lambda Transform": {
+      "InputPath": "$.output",
+      "Next": "Lambda Format",
+      "OutputPath": "$.Payload",
+      "Parameters": {
+        "FunctionName": "${TransformDataFunctionArn}",
+        "Payload.$": "$"
+      },
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Retry": [
+        {
+          "BackoffRate": 2,
+          "ErrorEquals": [
+            "Lambda.ServiceException",
+            "Lambda.AWSLambdaException",
+            "Lambda.SdkClientException",
+            "Lambda.TooManyRequestsException"
+          ],
+          "IntervalSeconds": 1,
+          "MaxAttempts": 3
+        }
+      ],
+      "Type": "Task"
+    },
+    "Create Report": {
+      "InputPath": "$.output",
+      "End": true,
+      "OutputPath": "$.Payload",
+      "Parameters": {
+        "FunctionName": "${CreateReportFunctionArn}",
+        "Payload.$": "$"
+      },
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Retry": [
+        {
+          "BackoffRate": 2,
+          "ErrorEquals": [
+            "Lambda.ServiceException",
+            "Lambda.AWSLambdaException",
+            "Lambda.SdkClientException",
+            "Lambda.TooManyRequestsException"
+          ],
+          "IntervalSeconds": 1,
+          "MaxAttempts": 3
+        }
+      ],
+      "Type": "Task"
+    }
+  }
+}

@@ -1,0 +1,61 @@
+openapi: 3.0.0
+
+info:
+  title: 
+    Fn::Sub: "openapi-${AWS::StackName}"
+  version: 0.3.0
+  description: 
+    Fn::Sub: "OpenAPI specification for ${AWS::StackName}"
+
+
+x-amazon-apigateway-request-validators:
+  all:
+    validateRequestParameters: true
+    validateRequestBody: true
+
+
+paths:
+  /report:
+    post:
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                video_id:
+                  type: string  
+                language:
+                  type: string
+              required:
+                - video_id
+      x-amazon-apigateway-request-validator: all
+      x-amazon-apigateway-integration:
+        uri:
+          Fn::Sub: arn:aws:apigateway:${AWS::Region}:states:action/StartExecution
+        credentials:
+          Fn::GetAtt: ApiGatewayStepFunctionsRole.Arn
+        requestTemplates:
+          application/json:
+            Fn::Sub: |-
+              {
+                "input": "$util.escapeJavaScript($input.json('$'))",
+                "name": "$context.requestId",
+                "stateMachineArn": "${CreateReportStateMachine}"
+              }
+        httpMethod: POST
+        timeoutInMillis: 3000
+        type: "aws"
+        responses:
+          default:
+            statusCode: 200
+          200:
+            statusCode: 200
+            responseTemplates:
+              application/json: |-
+                #set($inputRoot = $input.path('$'))
+                {
+                  "message": "Report creation started successfully",
+                  "startDate": $inputRoot.startDate
+                }
